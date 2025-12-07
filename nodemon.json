@@ -1,0 +1,22 @@
+{
+  "watch": ["server.js"],
+  "ext": "js",
+  "ignore": [
+    "node_modules",
+    ".git",
+    "../.git",
+    "../frontend",
+    "../*.md",
+    "../*.json",
+    "../.DS_Store",
+    "**/.DS_Store",
+    "**/._*",
+    "**/*.swp",
+    "**/*.tmp",
+    "**/iCloud*",
+    "**/.Trash"
+  ],
+  "delay": "500"
+}
+
+  
