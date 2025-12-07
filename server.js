@@ -90,6 +90,10 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   }
 });
 
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
 app.listen(PORT, () =>
   console.log(`🔥 Backend running on http://localhost:${PORT}`)
 );
