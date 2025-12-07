@@ -10,41 +10,42 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 
+// Render will assign PORT automatically
 const PORT = process.env.PORT || 3000;
 
-// Gemini
-// Gemini
+// Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// FIXED MODEL NAME
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
+// ✔️ USE A SAFE MODEL THAT YOUR API KEY SUPPORTS
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
 // Middlewares
 app.use(cors());
 app.use(express.json());
 
-// REQUIRED BY RENDER
+// Required endpoint for Render
 app.get("/", (req, res) => {
   res.status(200).send("Backend is running!");
 });
 
-// File Upload
+// File upload settings
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// Extract text from PDF (ONLY pdf-parse on Render)
+// Extract text from PDF
 async function extractTextPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
     return data.text.trim();
   } catch (err) {
+    console.error("PDF parse error:", err);
     return "";
   }
 }
 
-// Summarizer
+// Summarizer using Gemini
 async function summarize(text) {
   const prompt = `
 Summarize this text clearly using:
@@ -54,37 +55,43 @@ Summarize this text clearly using:
 
 Text:
 ${text}
-  `;
+`;
 
   const result = await model.generateContent(prompt);
   return result.response.text();
 }
 
-// Main API
+// Main summarize endpoint
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   try {
-    if (!req.file) return res.json({ error: "No PDF uploaded." });
+    if (!req.file) {
+      return res.json({ error: "No PDF uploaded." });
+    }
 
     let text = await extractTextPDF(req.file.buffer);
 
     if (!text || text.length < 20) {
-      return res.json({ summary: "PDF text could not be extracted (no OCR on server)." });
+      return res.json({ summary: "PDF text could not be extracted." });
     }
 
     const summary = await summarize(text);
 
     res.json({ summary });
   } catch (err) {
-    res.json({ summary: "Error generating summary.", error: err.message });
+    console.error("Error:", err);
+    res.json({
+      summary: "Error generating summary.",
+      error: err.message,
+    });
   }
 });
 
-// Health check
+// Health check for Render
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
 
-//Start Server
+// Start server
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔥 Server running on port ${PORT}`);
 });
