@@ -22,6 +22,11 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 app.use(cors());
 app.use(express.json());
 
+// ⭐ REQUIRED BY RENDER
+app.get("/", (req, res) => {
+  res.status(200).send("Backend is running!");
+});
+
 // File Upload
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -82,7 +87,7 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   }
 });
 
-// REQUIRED — Render health check
+// Render health check
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
