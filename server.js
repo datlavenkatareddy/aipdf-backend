@@ -13,8 +13,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Gemini
+// Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// FIXED MODEL NAME
+const model = genAI.getGenerativeModel({ 
+  model: "gemini-1.5-flash-latest" 
+});
 
 // Middlewares
 app.use(cors());
