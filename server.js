@@ -1,4 +1,5 @@
 // backend/server.js
+
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -9,28 +10,25 @@ const Tesseract = require("tesseract.js");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-const PORT = process.env.PORT || 5050;
 
-// Gemini Init
+// IMPORTANT: Render gives a PORT automatically
+const PORT = process.env.PORT || 3000;
+
+// Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// Middleware
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Health check route (REQUIRED FOR RENDER)
-app.get("/healthz", (req, res) => {
-  res.status(200).send("OK");
-});
-
-// Multer memory storage
+// File Upload
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// PDF text extraction
+// Extract text from PDF
 async function extractTextPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
@@ -50,12 +48,12 @@ async function extractOCR(buffer) {
 }
 
 // Summarizer
-async function summarizeWithGemini(text) {
+async function summarize(text) {
   const prompt = `
-Summarize the following text clearly using:
+Summarize this text clearly using:
 - 2 short paragraphs
-- 5–7 bullet points
-- Simple English
+- 5 bullet points
+- Easy English
 
 Text:
 ${text}
@@ -65,30 +63,31 @@ ${text}
   return result.response.text();
 }
 
-// Main route
+// Main API
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   try {
     if (!req.file) return res.json({ error: "No PDF uploaded." });
 
     let text = await extractTextPDF(req.file.buffer);
 
-    if (!text || text.length < 30) {
-      text = await extractOCR(req.file.buffer);
-    }
+    if (!text || text.length < 20) text = await extractOCR(req.file.buffer);
 
-    if (!text || text.length < 10) {
-      return res.json({ summary: "Could not extract text from PDF." });
-    }
+    if (!text) return res.json({ summary: "Could not extract text." });
 
-    const summary = await summarizeWithGemini(text);
-    return res.json({ summary });
+    const summary = await summarize(text);
 
-  } catch (e) {
-    return res.json({ summary: "Summary could not be generated.", error: e.toString() });
+    res.json({ summary });
+  } catch (err) {
+    res.json({ summary: "Error generating summary.", error: err.message });
   }
 });
 
-// Start server — MUST LISTEN ON 0.0.0.0 FOR RENDER
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🔥 Backend running on port ${PORT}`);
+// REQUIRED — Render health check
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
+// Start Server
+app.listen(PORT, () => {
+  console.log(`🔥 Server running on port ${PORT}`);
 });
