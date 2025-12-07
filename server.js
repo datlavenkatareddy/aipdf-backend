@@ -9,32 +9,30 @@ const pdfParse = require("pdf-parse");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-
-// Render will assign PORT automatically
 const PORT = process.env.PORT || 3000;
 
-// Initialize Gemini
+// -------------------- GEMINI SETUP --------------------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ✔️ USE A SAFE MODEL THAT YOUR API KEY SUPPORTS
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// WORKING MODEL FOR v1beta API
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// Middlewares
+// -------------------- MIDDLEWARE --------------------
 app.use(cors());
 app.use(express.json());
 
-// Required endpoint for Render
+// Required by Render root route
 app.get("/", (req, res) => {
   res.status(200).send("Backend is running!");
 });
 
-// File upload settings
+// -------------------- FILE UPLOAD --------------------
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
-// Extract text from PDF
+// -------------------- PDF TEXT EXTRACTOR --------------------
 async function extractTextPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
@@ -45,40 +43,40 @@ async function extractTextPDF(buffer) {
   }
 }
 
-// Summarizer using Gemini
+// -------------------- SUMMARIZER --------------------
 async function summarize(text) {
   const prompt = `
-Summarize this text clearly using:
-- 2 short paragraphs
-- 5 bullet points
-- Easy English
+Summarize the following text into:
+- Two short paragraphs
+- Five bullet points
+- Use simple, easy English
 
 Text:
 ${text}
-`;
+  `;
 
   const result = await model.generateContent(prompt);
   return result.response.text();
 }
 
-// Main summarize endpoint
+// -------------------- MAIN API --------------------
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.json({ error: "No PDF uploaded." });
-    }
+    if (!req.file) return res.json({ error: "No PDF uploaded." });
 
     let text = await extractTextPDF(req.file.buffer);
 
     if (!text || text.length < 20) {
-      return res.json({ summary: "PDF text could not be extracted." });
+      return res.json({
+        summary: "Could not extract text. (OCR is disabled on Render.)",
+      });
     }
 
     const summary = await summarize(text);
 
     res.json({ summary });
   } catch (err) {
-    console.error("Error:", err);
+    console.error("Summary error:", err);
     res.json({
       summary: "Error generating summary.",
       error: err.message,
@@ -86,12 +84,12 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   }
 });
 
-// Health check for Render
+// -------------------- HEALTH CHECK (REQUIRED BY RENDER) --------------------
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
 
-// Start server
+// -------------------- START SERVER --------------------
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔥 Server running on port ${PORT}`);
 });
