@@ -6,12 +6,10 @@ const multer = require("multer");
 require("dotenv").config();
 
 const pdfParse = require("pdf-parse");
-const Tesseract = require("tesseract.js");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 
-// IMPORTANT: Render gives a PORT automatically
 const PORT = process.env.PORT || 3000;
 
 // Gemini
@@ -22,7 +20,7 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 app.use(cors());
 app.use(express.json());
 
-// ⭐ REQUIRED BY RENDER
+// REQUIRED BY RENDER
 app.get("/", (req, res) => {
   res.status(200).send("Backend is running!");
 });
@@ -33,7 +31,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// Extract text from PDF
+// Extract text from PDF (ONLY pdf-parse on Render)
 async function extractTextPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
@@ -41,15 +39,6 @@ async function extractTextPDF(buffer) {
   } catch (err) {
     return "";
   }
-}
-
-// Fallback OCR
-async function extractOCR(buffer) {
-  return new Promise((resolve) => {
-    Tesseract.recognize(buffer, "eng", { logger: () => {} }).then((res) => {
-      resolve(res.data.text.trim());
-    });
-  });
 }
 
 // Summarizer
@@ -75,9 +64,9 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
 
     let text = await extractTextPDF(req.file.buffer);
 
-    if (!text || text.length < 20) text = await extractOCR(req.file.buffer);
-
-    if (!text) return res.json({ summary: "Could not extract text." });
+    if (!text || text.length < 20) {
+      return res.json({ summary: "PDF text could not be extracted (no OCR on server)." });
+    }
 
     const summary = await summarize(text);
 
@@ -87,12 +76,10 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   }
 });
 
-// Render health check
+// Health check
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🔥 Server running on port ${PORT}`);
-});
+// Start server
+app.listen(PORT, () => console.log(`🔥 Server running on port ${PORT}`));
