@@ -6,24 +6,25 @@ const multer = require("multer");
 require("dotenv").config();
 
 const pdfParse = require("pdf-parse");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const Groq = require("groq-sdk");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// -------------------- GEMINI SETUP --------------------
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// -------------------- GROQ CLIENT --------------------
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// WORKING MODEL FOR v1beta API
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+// WORKING MODEL (old model was removed)
+const MODEL_NAME = "llama-3.1-8b-instant";
+
 
 // -------------------- MIDDLEWARE --------------------
 app.use(cors());
 app.use(express.json());
 
-// Required by Render root route
+// Root route for Render
 app.get("/", (req, res) => {
-  res.status(200).send("Backend is running!");
+  res.status(200).send("Backend running!");
 });
 
 // -------------------- FILE UPLOAD --------------------
@@ -38,7 +39,7 @@ async function extractTextPDF(buffer) {
     const data = await pdfParse(buffer);
     return data.text.trim();
   } catch (err) {
-    console.error("PDF parse error:", err);
+    console.error("PDF parsing error:", err);
     return "";
   }
 }
@@ -46,17 +47,26 @@ async function extractTextPDF(buffer) {
 // -------------------- SUMMARIZER --------------------
 async function summarize(text) {
   const prompt = `
-Summarize the following text into:
+Summarize the following text clearly:
 - Two short paragraphs
 - Five bullet points
-- Use simple, easy English
+- Simple English
 
 Text:
 ${text}
   `;
 
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  const response = await groq.chat.completions.create({
+    model: MODEL_NAME,
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]
+  });
+
+  return response.choices[0].message.content;
 }
 
 // -------------------- MAIN API --------------------
@@ -68,23 +78,24 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
 
     if (!text || text.length < 20) {
       return res.json({
-        summary: "Could not extract text. (OCR is disabled on Render.)",
+        summary: "Could not extract text from PDF (OCR disabled)."
       });
     }
 
     const summary = await summarize(text);
 
     res.json({ summary });
+
   } catch (err) {
     console.error("Summary error:", err);
     res.json({
       summary: "Error generating summary.",
-      error: err.message,
+      error: err.message
     });
   }
 });
 
-// -------------------- HEALTH CHECK (REQUIRED BY RENDER) --------------------
+// -------------------- HEALTH CHECK --------------------
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
