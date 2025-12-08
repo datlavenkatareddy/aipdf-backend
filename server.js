@@ -15,11 +15,18 @@ const PORT = process.env.PORT || 3000;
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // WORKING MODEL (old model was removed)
-const MODEL_NAME = "llama-3.1-8b-instant";
+const MODEL_NAME = "mixtral-8x7b-32768";
+
 
 
 // -------------------- MIDDLEWARE --------------------
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+  })
+);
+
 app.use(express.json());
 
 // Root route for Render
