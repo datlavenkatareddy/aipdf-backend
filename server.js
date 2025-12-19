@@ -49,18 +49,38 @@ async function extractTextFromPDF(buffer) {
 // -------------------- SUMMARIZER --------------------
 async function generateStructuredSummary(text) {
   const prompt = `
-You are an expert document summarizer.
+You are a professional document summarizer.
 
-Create:
-1. Overview (2 short paragraphs)
-2. Section-wise summary with headings and bullet points
-3. Final key takeaways (5 bullets)
+IMPORTANT RULES:
+- Output MUST be valid Markdown
+- Use ONLY Markdown syntax
+- Do NOT add explanations outside Markdown
+- Do NOT wrap in code blocks
 
-Use simple, clear English.
+FORMAT EXACTLY LIKE THIS:
+
+## Overview
+(Write 2 short paragraphs)
+
+## Section-wise Summary
+### Section 1 Title
+- Bullet point
+- Bullet point
+
+### Section 2 Title
+- Bullet point
+- Bullet point
+
+## Final Key Takeaways
+- Point 1
+- Point 2
+- Point 3
+- Point 4
+- Point 5
 
 Document Text:
 ${text}
-  `;
+`;
 
   const response = await groq.chat.completions.create({
     model: MODEL_NAME,
@@ -69,6 +89,7 @@ ${text}
 
   return response.choices[0].message.content;
 }
+
 
 // -------------------- MAIN API --------------------
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
