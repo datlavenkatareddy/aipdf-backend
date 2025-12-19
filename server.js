@@ -6,8 +6,10 @@ const multer = require("multer");
 require("dotenv").config();
 
 const pdfParse = require("pdf-parse");
-const Tesseract = require("tesseract.js");
 const Groq = require("groq-sdk");
+
+const extractTextOCR = require("./utils/ocr");
+const cleanText = require("./utils/textCleaner");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,19 +19,12 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// ✅ WORKING + CURRENT MODEL
 const MODEL_NAME = "llama-3.1-8b-instant";
 
 // -------------------- MIDDLEWARE --------------------
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST"],
-  })
-);
+app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 
-// Root route (Render health)
 app.get("/", (req, res) => {
   res.status(200).send("Backend running!");
 });
@@ -37,10 +32,10 @@ app.get("/", (req, res) => {
 // -------------------- FILE UPLOAD --------------------
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// -------------------- PDF TEXT EXTRACTION --------------------
+// -------------------- PDF EXTRACTION --------------------
 async function extractTextFromPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
@@ -51,29 +46,7 @@ async function extractTextFromPDF(buffer) {
   }
 }
 
-// -------------------- OCR FALLBACK --------------------
-async function extractTextFromOCR(buffer) {
-  try {
-    const result = await Tesseract.recognize(buffer, "eng", {
-      logger: () => {},
-    });
-    return result.data.text.trim();
-  } catch (err) {
-    console.error("OCR error:", err);
-    return "";
-  }
-}
-
-// -------------------- TEXT CLEANER (SAVES TOKENS) --------------------
-function cleanText(text) {
-  return text
-    .replace(/\n{2,}/g, "\n")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 12000); // hard cap → avoids quota burn
-}
-
-// -------------------- SECTION-WISE SUMMARIZER --------------------
+// -------------------- SUMMARIZER --------------------
 async function generateStructuredSummary(text) {
   const prompt = `
 You are an expert document summarizer.
@@ -106,10 +79,10 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
 
     let text = await extractTextFromPDF(req.file.buffer);
 
-    // 🔁 OCR fallback for scanned PDFs
+    // OCR fallback
     if (!text || text.length < 50) {
-      console.log("Low text detected → switching to OCR");
-      text = await extractTextFromOCR(req.file.buffer);
+      console.log("📸 OCR fallback triggered");
+      text = await extractTextOCR(req.file.buffer);
     }
 
     if (!text || text.length < 50) {

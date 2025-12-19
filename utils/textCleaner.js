@@ -6,5 +6,5 @@ function cleanText(text) {
       .slice(0, 12000); // hard limit → saves tokens
   }
   
-  module.exports = { cleanText };
+  module.exports = cleanText ;
   
