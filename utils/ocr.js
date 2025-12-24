@@ -1,12 +1,30 @@
+// utils/ocr.js
+
+const { fromBuffer } = require("pdf2image");
 const Tesseract = require("tesseract.js");
 
-async function extractTextOCR(buffer) {
+async function extractTextOCR(pdfBuffer) {
   try {
-    const { data } = await Tesseract.recognize(buffer, "eng", {
-      logger: m => console.log(m.status),
+    const converter = fromBuffer(pdfBuffer, {
+      density: 200,
+      format: "png",
+      width: 1654,
+      height: 2339,
     });
 
-    return data.text.trim();
+    const pages = await converter.bulk(-1, true);
+
+    let fullText = "";
+
+    for (const page of pages) {
+      const {
+        data: { text },
+      } = await Tesseract.recognize(page.buffer, "eng");
+
+      fullText += text + "\n";
+    }
+
+    return fullText.trim();
   } catch (err) {
     console.error("OCR error:", err);
     return "";
