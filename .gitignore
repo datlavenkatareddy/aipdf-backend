@@ -1,1 +1,17 @@
+# dependencies
+node_modules/
+
+# env
 .env
+
+# OCR / tesseract data
+*.traineddata
+
+# build artifacts
+*.node
+*.dylib
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
