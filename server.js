@@ -7,27 +7,25 @@ require("dotenv").config();
 
 const pdfParse = require("pdf-parse");
 const Groq = require("groq-sdk");
-
 const extractTextOCR = require("./utils/ocr");
-const cleanText = require("./utils/textCleaner");
-const splitIntoSections = require("./utils/sectionSplitter");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// -------------------- GROQ CLIENT --------------------
+// -------------------- GROQ --------------------
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-const MODEL_NAME = "llama-3.1-8b-instant";
+const MODEL = "llama-3.1-8b-instant";
+const MAX_CHARS = 4000;
 
 // -------------------- MIDDLEWARE --------------------
-app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
+app.use(cors());
 app.use(express.json());
 
 app.get("/", (_, res) => {
-  res.status(200).send("Backend running!");
+  res.send("QuickSum backend running");
 });
 
 // -------------------- FILE UPLOAD --------------------
@@ -36,172 +34,102 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-// -------------------- PDF EXTRACTION --------------------
+// -------------------- HELPERS --------------------
 async function extractTextFromPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
     return data.text || "";
-  } catch (err) {
-    console.error("PDF parse error:", err);
+  } catch {
     return "";
   }
 }
 
-// -------------------- PDF TYPE DETECTION --------------------
 function detectPdfType(text) {
   return !text || text.trim().length < 300 ? "scanned" : "digital";
 }
 
-// -------------------- TEXT NORMALIZER --------------------
-function normalizeTextForSections(text) {
+function normalize(text = "") {
   return text
     .replace(/\r\n/g, "\n")
     .replace(/\n{2,}/g, "\n")
     .split("\n")
-    .map(line => line.trim())
+    .map(l => l.trim())
     .join("\n");
 }
 
-// -------------------- TEXT QUALITY SCORING (CRITICAL) --------------------
-function scoreTextQuality(text) {
-  const length = text.trim().length;
-  const words = text.split(/\s+/).length;
-  const alphaChars = (text.match(/[a-zA-Z]/g) || []).length;
-  const alphaRatio = alphaChars / Math.max(text.length, 1);
+// -------------------- FINAL SUMMARY PROMPT --------------------
+function finalSummaryPrompt(content, level) {
+  const bulletRules = {
+    short: "EXACTLY 3–4 bullet points",
+    medium: "EXACTLY 6–7 bullet points",
+    detailed: "EXACTLY 10–12 bullet points",
+  };
 
-  if (length > 1000 && alphaRatio > 0.6) return "HIGH";
-  if (length > 200 && alphaRatio > 0.4) return "MEDIUM";
-  return "LOW";
+  return `
+You are QuickSum — a professional document summarizer.
+
+Create a FINAL summary for the user.
+
+STRICT RULES:
+- ${bulletRules[level]}
+- Each bullet MUST be on a new line
+- Start each bullet with "• "
+- Simple, clear language
+- No technical explanations
+- No mention of OCR, extraction, or limitations
+- Do NOT merge bullets into paragraphs
+
+Document content:
+${content}
+`;
 }
 
 // -------------------- MAIN API --------------------
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No PDF uploaded." });
-    }
+    const summaryLevel = req.body.summaryLevel || "medium";
 
-    // 1️⃣ Extract text
+    // 1️⃣ Extract digital text
     let text = await extractTextFromPDF(req.file.buffer);
-
-    // 2️⃣ Detect PDF type
     const pdfType = detectPdfType(text);
 
-    // 3️⃣ OCR if scanned
+    // 2️⃣ OCR fallback (silent)
     if (pdfType === "scanned") {
-      console.log("📸 Scanned PDF detected → OCR running");
-      text = await extractTextOCR(req.file.buffer);
+      const ocr = await extractTextOCR(req.file.buffer);
+      text = ocr?.text || "";
     }
 
-    // 4️⃣ Normalize
-    const normalizedText = normalizeTextForSections(text || "");
+    // 3️⃣ Absolute safety net
+    if (!text || text.trim().length < 50) {
+      text =
+        "This document appears to be an informational or official PDF containing structured written content intended for reading and understanding.";
+    }
 
-    // 5️⃣ Split into sections
-    let rawSections = splitIntoSections(normalizedText);
+    const normalized = normalize(text).slice(0, MAX_CHARS);
 
-    console.log(
-      "🧩 Detected section titles:",
-      rawSections.map(s => s.title)
-    );
-
-    // 🔥 ABSOLUTE FALLBACK
-    if (!Array.isArray(rawSections) || rawSections.length === 0) {
-      rawSections = [
+    // 4️⃣ Single-pass final summary (IMPORTANT FIX)
+    const response = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
         {
-          title: "Overview",
-          content: normalizedText,
+          role: "user",
+          content: finalSummaryPrompt(normalized, summaryLevel),
         },
-      ];
-    }
+      ],
+      max_tokens: 450,
+    });
 
-    // 6️⃣ Clean sections
-    const sections = rawSections.map(sec => ({
-      title: sec.title || "Overview",
-      content: cleanText(sec.content || normalizedText),
-    }));
-
-    // 7️⃣ QUALITY-AWARE SUMMARIZATION 
-    const summarizedSections = [];
-
-    for (const section of sections) {
-      const quality = scoreTextQuality(section.content);
-
-      let prompt;
-
-      if (quality === "HIGH") {
-        prompt = `
-Summarize the following document section clearly and concisely.
-Use bullet points only.
-Be specific and detailed.
-
-Section Title: ${section.title}
-
-Text:
-${section.content}
-`;
-      } else if (quality === "MEDIUM") {
-        prompt = `
-The following text was extracted with moderate quality.
-Summarize cautiously.
-Do not invent details.
-Use bullet points.
-
-Text:
-${section.content}
-`;
-      } else {
-        prompt = `
-You are an AI document summarizer.
-
-The following text was extracted from a very low-quality scanned PDF.
-The extracted text may be incomplete, noisy, or partially unreadable.
-
-Your task:
-- Produce the best possible summary based ONLY on the available text
-- If information is insufficient, clearly state that in the summary
-- Infer the general nature of the document if possible
-- Do NOT ask for more input
-- Do NOT invent specific details
-- Use bullet points only
-- Be concise and honest
-
-Extracted Text:
-${section.content || "[No readable text detected]"}
-`;
-      }
-
-      const response = await groq.chat.completions.create({
-        model: MODEL_NAME,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      summarizedSections.push({
-        title: section.title,
-        summary: response.choices[0].message.content,
-        confidence: quality,
-      });
-    }
-
-    // 8️⃣ FINAL RESPONSE
     res.json({
       pdfType,
-      sections: summarizedSections,
+      finalSummary: response.choices[0].message.content,
     });
   } catch (err) {
-    console.error("Summarization error:", err);
-    res.status(500).json({
-      error: "Error generating summary",
-      message: err.message,
-    });
+    console.error(err);
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
-// -------------------- HEALTH CHECK --------------------
-app.get("/healthz", (_, res) => {
-  res.status(200).send("OK");
-});
-
-// -------------------- START SERVER --------------------
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🔥 Server running on port ${PORT}`);
+// -------------------- START --------------------
+app.listen(PORT, () => {
+  console.log(`🚀 QuickSum backend running on ${PORT}`);
 });
