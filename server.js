@@ -53,12 +53,12 @@ function normalize(text = "") {
     .replace(/\r\n/g, "\n")
     .replace(/\n{2,}/g, "\n")
     .split("\n")
-    .map(l => l.trim())
+    .map((l) => l.trim())
     .join("\n");
 }
 
 // -------------------- FINAL SUMMARY PROMPT --------------------
-function finalSummaryPrompt(content, level) {
+function finalSummaryPrompt(content, level, language) {
   const bulletRules = {
     short: "EXACTLY 3–4 bullet points",
     medium: "EXACTLY 6–7 bullet points",
@@ -66,14 +66,14 @@ function finalSummaryPrompt(content, level) {
   };
 
   return `
-You are QuickSum — a professional document summarizer.
+You are QuickSum.
 
-Create a FINAL summary for the user.
+Create a FINAL summary in ${language}.
 
 STRICT RULES:
 - ${bulletRules[level]}
+- Each bullet MUST start with "• "
 - Each bullet MUST be on a new line
-- Start each bullet with "• "
 - Simple, clear language
 - No technical explanations
 - No mention of OCR, extraction, or limitations
@@ -88,6 +88,7 @@ ${content}
 app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
   try {
     const summaryLevel = req.body.summaryLevel || "medium";
+    const language = req.body.language || "English";
 
     // 1️⃣ Extract digital text
     let text = await extractTextFromPDF(req.file.buffer);
@@ -99,7 +100,7 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
       text = ocr?.text || "";
     }
 
-    // 3️⃣ Absolute safety net
+    // 3️⃣ Absolute safety net (never return empty)
     if (!text || text.trim().length < 50) {
       text =
         "This document appears to be an informational or official PDF containing structured written content intended for reading and understanding.";
@@ -107,16 +108,16 @@ app.post("/api/summarize", upload.single("pdf"), async (req, res) => {
 
     const normalized = normalize(text).slice(0, MAX_CHARS);
 
-    // 4️⃣ Single-pass final summary (IMPORTANT FIX)
+    // 4️⃣ FINAL SUMMARY (single pass)
     const response = await groq.chat.completions.create({
       model: MODEL,
       messages: [
         {
           role: "user",
-          content: finalSummaryPrompt(normalized, summaryLevel),
+          content: finalSummaryPrompt(normalized, summaryLevel, language),
         },
       ],
-      max_tokens: 450,
+      max_tokens: 500,
     });
 
     res.json({
